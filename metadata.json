@@ -1,5 +1,5 @@
 {
-  "name": "Copy of polymarket",
+  "name": "polymarket",
   "description": "The official $Polymarket prediction terminal.",
   "requestFramePermissions": [
     "camera"

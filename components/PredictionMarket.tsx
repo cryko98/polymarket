@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { getMerkets, voteMerket, getUserVote, createMarket, getComments, postComment, fetchMarketCap } from '../services/marketService';
 import { PredictionMerket as MerketType, MerketComment } from '../types';
-import { Loader2, X, Plus, MessageSquare, Star, ChevronUp, ChevronDown, Download, Send, TrendingUp, BarChart, Zap } from 'lucide-react';
+import { Loader2, X, Plus, MessageSquare, Star, ChevronUp, ChevronDown, Send, TrendingUp, BarChart, Zap } from 'lucide-react';
 
 const BRAND_LOGO = "https://img.cryptorank.io/coins/polymarket1671006384460.png";
 
@@ -14,54 +14,111 @@ const XIcon = ({ size = 16, className = "" }) => (
   </svg>
 );
 
-const TrendGraph: React.FC<{ yesProb: number; height?: number }> = ({ yesProb, height = 60 }) => {
+const TrendGraph: React.FC<{ yesProb: number; marketId: string; height?: number }> = ({ yesProb, marketId, height = 200 }) => {
+  const noProb = 100 - yesProb;
+  
   const points = useMemo(() => {
-    const p = [];
-    const segments = 15;
-    const width = 200;
-    const baseLine = height / 2;
-    const trend = (yesProb - 50) / 50; 
+    const yesP = [];
+    const noP = [];
+    const segments = 60;
+    const width = 600;
+    
+    // Seeded random for consistent "history" per market
+    let seed = marketId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const seededRandom = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
 
+    // Full 0-100 scale
+    const minY = 0;
+    const maxY = 100;
+    const range = maxY - minY;
+
+    const mapValueToY = (val: number) => {
+      // 0 is top, height is bottom
+      const normalized = (val - minY) / range;
+      return height - (normalized * height);
+    };
+
+    // Generate path
     for (let i = 0; i <= segments; i++) {
       const x = (i / segments) * width;
-      const jitter = Math.sin(i * 1.8 + yesProb) * 6;
-      const trendY = baseLine - (trend * (i / segments) * (height / 2.5)) + jitter;
-      p.push(`${x},${Math.max(5, Math.min(height - 5, trendY))}`);
-    }
-    return p.join(' ');
-  }, [yesProb, height]);
+      const progress = i / segments;
+      
+      // History walk that converges on the current real percentage at the end
+      // We start from 50 (neutral) and walk towards the target
+      const startValueYes = 50;
+      const startValueNo = 50;
+      
+      // Interpolate towards target with some noise
+      const baseYes = startValueYes + (yesProb - startValueYes) * progress;
+      const baseNo = startValueNo + (noProb - startValueNo) * progress;
+      
+      const noiseIntensity = (1 - progress) * 12; // More noise in the past
+      const currentYes = i === segments ? yesProb : baseYes + (seededRandom() - 0.5) * noiseIntensity;
+      const currentNo = i === segments ? noProb : baseNo + (seededRandom() - 0.5) * noiseIntensity;
 
-  const isBullish = yesProb >= 50;
-  const color = isBullish ? '#10b981' : '#f43f5e';
+      yesP.push(`${x},${mapValueToY(currentYes)}`);
+      noP.push(`${x},${mapValueToY(currentNo)}`);
+    }
+    
+    return { yes: yesP.join(' '), no: noP.join(' '), mapValueToY };
+  }, [yesProb, height, marketId]);
+
+  const labels = [100, 80, 60, 40, 20, 0];
 
   return (
-    <div className="w-full relative overflow-hidden h-[60px] mt-2 mb-4 bg-white/[0.02] rounded-lg border border-white/5">
-      <svg className="w-full h-full" viewBox="0 0 200 60" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={`grad-${yesProb}`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" style={{ stopColor: color, stopOpacity: 0.15 }} />
-            <stop offset="100%" style={{ stopColor: color, stopOpacity: 0 }} />
-          </linearGradient>
-        </defs>
-        <path
-          d={`M0,60 L0,30 ${points.split(' ').map((p, i) => (i === 0 ? `L${p}` : `L${p}`)).join(' ')} L200,60 Z`}
-          fill={`url(#grad-${yesProb})`}
-          className="transition-all duration-1000"
-        />
-        <polyline
-          fill="none"
-          stroke={color}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          points={points}
-          className="transition-all duration-1000"
-          style={{ filter: `drop-shadow(0 0 4px ${color}88)` }}
-        />
-      </svg>
-      <div className="absolute top-1 right-2 flex items-center gap-1">
-        <div className={`w-1 h-1 rounded-full animate-pulse`} style={{ backgroundColor: color }}></div>
-        <span className="text-[7px] font-black uppercase tracking-tighter opacity-30 text-white">Sentiment Trend</span>
+    <div className="w-full relative flex bg-[#0d1117] rounded-xl border border-white/5 my-6 overflow-hidden shadow-2xl group/graph" style={{ height: `${height}px` }}>
+      {/* Graph Area */}
+      <div className="flex-1 relative border-r border-white/10 overflow-hidden">
+        {/* Horizontal Grid lines */}
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-10">
+          {labels.map((_, i) => (
+            <div key={i} className="w-full border-t border-white/20"></div>
+          ))}
+        </div>
+        
+        <svg className="w-full h-full" viewBox={`0 0 600 ${height}`} preserveAspectRatio="none">
+          {/* NO Line (Red) */}
+          <polyline
+            fill="none"
+            stroke="#ef4444"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            points={points.no}
+            className="transition-all duration-700"
+          />
+          {/* YES Line (Green) */}
+          <polyline
+            fill="none"
+            stroke="#22c55e"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            points={points.yes}
+            className="transition-all duration-700"
+          />
+          
+          {/* Real-time Terminal Points */}
+          <circle cx="600" cy={points.mapValueToY(yesProb)} r="6" fill="#22c55e" className="transition-all duration-700 shadow-lg" />
+          <circle cx="600" cy={points.mapValueToY(noProb)} r="6" fill="#ef4444" className="transition-all duration-700 shadow-lg" />
+        </svg>
+
+        {/* Source overlay */}
+        <div className="absolute bottom-2 left-3 bg-black/60 px-3 py-1 rounded-md text-[9px] font-black text-white/40 italic uppercase tracking-[0.2em] border border-white/5">
+          SOURCE: POLY-MARKET.SITE
+        </div>
+      </div>
+
+      {/* Right-side Axis Labels */}
+      <div className="w-14 flex flex-col justify-between items-center py-0.5 opacity-40 text-[10px] font-black text-white bg-black/40">
+        {labels.map((val) => (
+          <div key={val} className="flex-1 flex items-center justify-center border-b border-white/5 w-full last:border-b-0 italic">
+            {val}%
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -97,7 +154,6 @@ const MerketDetailModal: React.FC<{ merket: MerketType; onClose: () => void; onV
   const [comments, setComments] = useState<MerketComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [username, setUsername] = useState(localStorage.getItem('poly_username') || '');
-  const [isDownloading, setIsDownloading] = useState(false);
   const [mcap, setMcap] = useState<string | null>(null);
   
   const currentVote = getUserVote(merket.id);
@@ -139,96 +195,6 @@ const MerketDetailModal: React.FC<{ merket: MerketType; onClose: () => void; onV
     setComments(updated);
   };
 
-  const handleDownloadCard = async () => {
-    setIsDownloading(true);
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = 1000;
-    canvas.height = 1000;
-
-    ctx.fillStyle = '#0a0f1d';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const logoImg = new Image();
-    logoImg.crossOrigin = "anonymous";
-    logoImg.src = merket.image || BRAND_LOGO;
-    await new Promise(r => logoImg.onload = r);
-    
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(60, 60, 120, 120, 25);
-    ctx.clip();
-    ctx.drawImage(logoImg, 60, 60, 120, 120);
-    ctx.restore();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'italic 900 64px Space Grotesk';
-    ctx.textBaseline = 'top';
-    const words = merket.question.toUpperCase().split(' ');
-    let line = '';
-    let y = 60;
-    for(let n = 0; n < words.length; n++) {
-      let testLine = line + words[n] + ' ';
-      let metrics = ctx.measureText(testLine);
-      if (metrics.width > 700 && n > 0) {
-        ctx.fillText(line, 210, y);
-        line = words[n] + ' ';
-        y += 75;
-      } else { line = testLine; }
-    }
-    ctx.fillText(line, 210, y);
-
-    const boxY = Math.max(250, y + 140);
-    ctx.fillStyle = 'rgba(255,255,255,0.03)';
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 2;
-    ctx.roundRect(60, boxY, 880, 420, 50);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.font = 'italic 900 20px Space Grotesk';
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillText('BULLISH SENTIMENT', 100, boxY + 40);
-    ctx.textAlign = 'right';
-    ctx.fillText('BEARISH SENTIMENT', 900, boxY + 40);
-    ctx.textAlign = 'left';
-
-    ctx.font = 'italic 900 96px Space Grotesk';
-    ctx.fillStyle = '#3b82f6';
-    ctx.fillText(`${yesProb}% YES`, 100, boxY + 80);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#ef4444';
-    ctx.fillText(`${100-yesProb}% NO`, 900, boxY + 80);
-    ctx.textAlign = 'left';
-
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    ctx.roundRect(100, boxY + 200, 800, 20, 10);
-    ctx.fill();
-    ctx.fillStyle = '#3b82f6';
-    ctx.roundRect(100, boxY + 200, (800 * yesProb) / 100, 20, 10);
-    ctx.fill();
-
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(100, boxY + 360);
-    for(let i=0; i<=20; i++) {
-        const x = 100 + (i * 40);
-        const jitter = Math.sin(i * 1.5 + yesProb) * 15;
-        const ty = (boxY + 360) - ((yesProb - 50) / 3) + jitter;
-        ctx.lineTo(x, ty);
-    }
-    ctx.stroke();
-
-    const link = document.createElement('a');
-    link.download = `market-card-${slugify(merket.question)}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-    setIsDownloading(false);
-  };
-
   const handleTweetAction = () => {
     const slug = slugify(merket.question);
     const domain = window.location.origin;
@@ -259,14 +225,14 @@ const MerketDetailModal: React.FC<{ merket: MerketType; onClose: () => void; onV
 
             <div className="mb-8 p-8 bg-white/5 rounded-[2rem] border border-white/5 relative">
                <div className="flex justify-between items-end mb-6 font-black italic uppercase tracking-tighter">
-                  <div className="flex flex-col"><span className="text-blue-400 text-[10px] tracking-widest mb-1 opacity-40 italic">Bullish Sentiment</span><span className="text-4xl text-blue-500">{yesProb}% YES</span></div>
-                  <div className="flex flex-col items-end"><span className="text-red-400 text-[10px] tracking-widest mb-1 opacity-40 italic">Bearish Sentiment</span><span className="text-4xl text-red-500">{100-yesProb}% NO</span></div>
+                  <div className="flex flex-col"><span className="text-green-400 text-[10px] tracking-widest mb-1 opacity-60 italic uppercase font-black">Bullish Signal</span><span className="text-4xl text-green-500">{yesProb}% YES</span></div>
+                  <div className="flex flex-col items-end"><span className="text-red-400 text-[10px] tracking-widest mb-1 opacity-60 italic uppercase font-black">Bearish Signal</span><span className="text-4xl text-red-500">{100-yesProb}% NO</span></div>
                </div>
                <div className="h-4 bg-white/5 rounded-full overflow-hidden flex mb-6 border border-white/5">
-                  <div className="h-full bg-blue-600 transition-all duration-1000 shadow-[0_0_15px_rgba(37,99,235,0.4)]" style={{ width: `${yesProb}%` }} />
+                  <div className="h-full bg-green-600 transition-all duration-1000 shadow-[0_0_15px_rgba(34,197,94,0.4)]" style={{ width: `${yesProb}%` }} />
                   <div className="h-full bg-red-600 transition-all duration-1000 shadow-[0_0_15px_rgba(239,68,68,0.4)]" style={{ width: `${100-yesProb}%` }} />
                </div>
-               <TrendGraph yesProb={yesProb} height={80} />
+               <TrendGraph yesProb={yesProb} marketId={merket.id} height={250} />
             </div>
             {merket.description && (
               <p className="text-lg font-bold opacity-60 italic mb-12 px-2 leading-relaxed">"{merket.description}"</p>
@@ -297,12 +263,9 @@ const MerketDetailModal: React.FC<{ merket: MerketType; onClose: () => void; onV
           <button onClick={() => setSelectedOption('YES')} className={`w-full py-5 rounded-2xl font-black text-lg border transition-all uppercase italic tracking-tighter ${selectedOption === 'YES' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-transparent border-white/5 hover:border-white/20 text-white/40'}`}>Yes Signal</button>
           <button onClick={() => setSelectedOption('NO')} className={`w-full py-5 rounded-2xl font-black text-lg border transition-all uppercase italic tracking-tighter ${selectedOption === 'NO' ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-transparent border-white/5 hover:border-white/20 text-white/40'}`}>No Signal</button>
           <button onClick={() => onVote(merket.id, selectedOption!)} disabled={!selectedOption || isVoting} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl hover:bg-blue-500 transition-all disabled:opacity-20 mt-4 shadow-xl uppercase italic tracking-tighter">{isVoting ? <Loader2 className="animate-spin mx-auto" /> : "Submit Vote"}</button>
-          <div className="grid grid-cols-2 gap-3 mt-6">
+          <div className="grid grid-cols-1 gap-3 mt-6">
             <button onClick={handleTweetAction} className="py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-2 text-[10px] font-black uppercase italic hover:bg-white/10 transition-all text-white/60">
-              <XIcon size={14} /> Share
-            </button>
-            <button onClick={handleDownloadCard} disabled={isDownloading} className="py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-2 text-[10px] font-black uppercase italic hover:bg-white/10 transition-all text-white/60">
-              {isDownloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14}/>} Download Card
+              <XIcon size={14} /> Share Analysis
             </button>
           </div>
         </div>
@@ -337,12 +300,12 @@ const MerketCard: React.FC<{ merket: MerketType; onOpen: (m: MerketType) => void
       </div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-[10px] font-black text-blue-400 uppercase italic tracking-widest"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)]"></span><span>YES: {yesProb}%</span></div>
+          <div className="flex items-center gap-2 text-[10px] font-black text-green-400 uppercase italic tracking-widest"><span className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span><span>YES: {yesProb}%</span></div>
           <div className="flex items-center gap-2 text-[10px] font-black text-red-400 uppercase italic tracking-widest"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span><span>NO: {100-yesProb}%</span></div>
         </div>
         <div className="shrink-0 scale-90 md:scale-100"><ChanceIndicator percentage={yesProb} /></div>
       </div>
-      <TrendGraph yesProb={yesProb} />
+      <TrendGraph yesProb={yesProb} marketId={merket.id} height={100} />
       <div className="grid grid-cols-2 gap-3 mb-6 mt-2">
         <button onClick={(e) => { e.stopPropagation(); onOpen(merket); }} className="flex items-center justify-center gap-2 bg-[#2d4a41]/40 hover:bg-[#345b4e]/60 text-[#4ade80] border border-[#3e6b5c] rounded-2xl py-3 px-2 font-black text-[10px] uppercase italic transition-all">Yes <ChevronUp size={14} /></button>
         <button onClick={(e) => { e.stopPropagation(); onOpen(merket); }} className="flex items-center justify-center gap-2 bg-[#4a3434]/40 hover:bg-[#5b3e3e]/60 text-[#fb7185] border border-[#6b3e3e] rounded-2xl py-3 px-2 font-black text-[10px] uppercase italic transition-all">No <ChevronDown size={14} /></button>
