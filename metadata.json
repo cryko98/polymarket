@@ -1,0 +1,7 @@
+{
+  "name": "Copy of polymarket",
+  "description": "The official $Polymarket prediction terminal.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
